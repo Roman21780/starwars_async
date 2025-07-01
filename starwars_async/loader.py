@@ -9,7 +9,7 @@ from starwars_async.api_client import fetch_character_data, BASE_URL
 logging.basicConfig(
     level=logging.INFO,
     filename="app.log",  # Логи будут записываться в файл app.log
-    filemode="a",  # Режим записи: "a" (append) — добавление в конец файла
+    filemode="w",  # Режим записи: "a" (append) — добавление в конец файла
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
