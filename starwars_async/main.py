@@ -1,10 +1,13 @@
-# Точка входа
-import logging
 import asyncio
-import traceback
-from starwars_async.loader import load_all_characters
+import logging
+from starwars_async.loader import (
+    load_all_characters,
+    load_all_starships,
+    load_all_vehicles,
+    load_all_planets,
+)
 
-# Настройка логирования с сохранением в файл
+# Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     filename="app.log",  # Имя файла для сохранения логов
@@ -12,17 +15,32 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
-
 async def main():
     try:
         logging.info("Starting to load all characters...")
-        # Загружаем всех персонажей
         await load_all_characters()
         logging.info("All characters have been successfully loaded.")
-    except Exception as e:
-        error_traceback = traceback.format_exc()
-        logging.error("An error occurred: %s\n%s", e, error_traceback)
 
+        logging.info("Starting to load all starships...")
+        await load_all_starships()
+        logging.info("All starships have been successfully loaded.")
+
+        logging.info("Starting to load all vehicles...")
+        await load_all_vehicles()
+        logging.info("All vehicles have been successfully loaded.")
+
+        logging.info("Starting to load all planets...")
+        await load_all_planets()
+        logging.info("All planets have been successfully loaded.")
+    except asyncio.CancelledError:
+        logging.info("Script was cancelled by user")
+    except Exception as e:
+        logging.error(f"An error occurred: {str(e)}", exc_info=True)
+    finally:
+        logging.info("Script finished")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Script interrupted by user")
