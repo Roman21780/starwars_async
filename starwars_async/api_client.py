@@ -3,188 +3,141 @@ import asyncio
 from typing import Optional, Dict, Any
 
 # Конфигурация
-BASE_URL = "https://www.swapi.tech/api/ "
+BASE_URL = "https://www.swapi.tech/api/"
 REQUEST_TIMEOUT = 30  # секунд
 MAX_RETRIES = 3
-CONCURRENT_REQUESTS_LIMIT = 5  # Ограничение на количество одновременных запросов
+CONCURRENT_REQUESTS_LIMIT = 5
 
-# Семафор для ограничения количества одновременных запросов
-request_semaphore = asyncio.Semaphore(CONCURRENT_REQUESTS_LIMIT)
-
-
-async def fetch_data(session: aiohttp.ClientSession, url: str) -> Dict[str, Any]:
-    """
-    Общая функция для получения данных из API.
-    """
-    for attempt in range(MAX_RETRIES):
+async def fetch_with_retry(
+    session: aiohttp.ClientSession,
+    url: str,
+    max_retries: int = MAX_RETRIES
+) -> Optional[Dict[str, Any]]:
+    """Выполнение запроса с повторами при ошибках"""
+    for attempt in range(max_retries):
         try:
-            async with request_semaphore, session.get(url.strip(), timeout=REQUEST_TIMEOUT) as response:
+            async with session.get(url.strip(), timeout=REQUEST_TIMEOUT) as response:
                 if response.status == 429:  # Rate limiting
-                    wait_time = 5 * (attempt + 1)  # Экспоненциальная задержка
+                    wait_time = 2 ** (attempt + 1)  # Экспоненциальная задержка
                     await asyncio.sleep(wait_time)
                     continue
 
-                content_type = response.headers.get("Content-Type", "")
-                if "application/json" not in content_type:
-                    return {}
+                if response.status != 200:
+                    if attempt == max_retries - 1:
+                        return None
+                    continue
 
-                response.raise_for_status()
                 data = await response.json()
-
-                # Проверяем структуру ответа
-                if "result" not in data or "properties" not in data["result"]:
-                    return {}
+                if not data or "result" not in data:
+                    return None
 
                 return data["result"]["properties"]
 
-        except (aiohttp.ClientError, aiohttp.ClientResponseError, asyncio.TimeoutError):
-            if attempt == MAX_RETRIES - 1:
-                raise
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            if attempt == max_retries - 1:
+                return None
             await asyncio.sleep(1 * (attempt + 1))
 
-    raise Exception(f"All {MAX_RETRIES} attempts failed for {url}")
+    return None
 
-
-def safe_join(items: list) -> str:
-    """
-    Безопасное объединение списка строк с фильтрацией None и пустых значений.
-    """
+def safe_join(items: list, separator: str = ", ") -> str:
+    """Безопасное объединение списка в строку"""
     if not items:
         return "unknown"
+    return separator.join(str(item).strip() for item in items if item and str(item).strip())
 
-    # Фильтруем None и пустые значения
-    filtered = [str(item).strip() for item in items if item is not None and str(item).strip()]
-    return ", ".join(filtered) if filtered else "unknown"
-
-
-async def fetch_character_data(session, character_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Загрузка данных о персонаже.
-    """
+def extract_id(url: str) -> Optional[int]:
+    """Извлечение ID из URL"""
     try:
-        character_url = f"{BASE_URL.strip()}people/{character_id}"
-        async with session.get(character_url) as response:
-            if response.status == 200:
-                data = await response.json()
-                properties = data.get("result", {}).get("properties", {})
-
-                # Фильтруем только нужные поля
-                filtered_data = {
-                    "id": int(character_id),
-                    "birth_year": properties.get("birth_year", "unknown"),
-                    "eye_color": properties.get("eye_color", "unknown"),
-                    "films": safe_join(properties.get("films", [])),
-                    "gender": properties.get("gender", "unknown"),
-                    "hair_color": properties.get("hair_color", "unknown"),
-                    "height": properties.get("height", "unknown"),
-                    "homeworld": properties.get("homeworld", "unknown"),
-                    "mass": properties.get("mass", "unknown"),
-                    "name": properties.get("name", "unknown"),
-                    "skin_color": properties.get("skin_color", "unknown"),
-                    "species": safe_join(properties.get("species", [])),
-                    "starships": safe_join(properties.get("starships", [])),
-                    "vehicles": safe_join(properties.get("vehicles", [])),
-                }
-                return filtered_data
-            else:
-                return None
-    except Exception:
+        return int(url.strip("/").split("/")[-1])
+    except (ValueError, IndexError, AttributeError):
         return None
 
-
-async def fetch_starship_data(session, starship_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Загрузка данных о звездолёте.
-    """
-    try:
-        starship_url = f"{BASE_URL.strip()}starships/{starship_id}"
-        async with session.get(starship_url) as response:
-            if response.status == 200:
-                data = await response.json()
-                properties = data.get("result", {}).get("properties", {})
-
-                # Фильтруем только нужные поля
-                filtered_data = {
-                    "id": starship_id,
-                    "name": properties.get("name", "unknown"),
-                    "model": properties.get("model", "unknown"),
-                    "manufacturer": properties.get("manufacturer", "unknown"),
-                    "cost_in_credits": properties.get("cost_in_credits", "unknown"),
-                    "length": properties.get("length", "unknown"),
-                    "crew": properties.get("crew", "unknown"),
-                    "passengers": properties.get("passengers", "unknown"),
-                    "cargo_capacity": properties.get("cargo_capacity", "unknown"),
-                    "consumables": properties.get("consumables", "unknown"),
-                    "hyperdrive_rating": properties.get("hyperdrive_rating", "unknown"),
-                    "starship_class": properties.get("starship_class", "unknown"),
-                    "films": safe_join(properties.get("films", [])),
-                }
-                return filtered_data
-            else:
-                return None
-    except Exception:
+async def fetch_character_data(session: aiohttp.ClientSession, character_id: int) -> Optional[Dict[str, Any]]:
+    """Загрузка данных о персонаже"""
+    url = f"{BASE_URL}people/{character_id}"
+    data = await fetch_with_retry(session, url)
+    if not data:
         return None
 
+    return {
+        "id": character_id,
+        "birth_year": data.get("birth_year", "unknown"),
+        "eye_color": data.get("eye_color", "unknown"),
+        "films": safe_join(data.get("films", [])),
+        "gender": data.get("gender", "unknown"),
+        "hair_color": data.get("hair_color", "unknown"),
+        "height": data.get("height", "unknown"),
+        "homeworld": data.get("homeworld", "unknown"),
+        "mass": data.get("mass", "unknown"),
+        "name": data.get("name", "unknown"),
+        "skin_color": data.get("skin_color", "unknown"),
+        "species": safe_join(data.get("species", [])),
+        "starships": safe_join(data.get("starships", [])),
+        "vehicles": safe_join(data.get("vehicles", [])),
+    }
 
-async def fetch_vehicle_data(session, vehicle_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Загрузка данных о транспортном средстве.
-    """
-    try:
-        vehicle_url = f"{BASE_URL.strip()}vehicles/{vehicle_id}"
-        async with session.get(vehicle_url) as response:
-            if response.status == 200:
-                data = await response.json()
-                properties = data.get("result", {}).get("properties", {})
-
-                # Фильтруем только нужные поля
-                filtered_data = {
-                    "id": vehicle_id,
-                    "name": properties.get("name", "unknown"),
-                    "model": properties.get("model", "unknown"),
-                    "manufacturer": properties.get("manufacturer", "unknown"),
-                    "cost_in_credits": properties.get("cost_in_credits", "unknown"),
-                    "length": properties.get("length", "unknown"),
-                    "crew": properties.get("crew", "unknown"),
-                    "passengers": properties.get("passengers", "unknown"),
-                    "cargo_capacity": properties.get("cargo_capacity", "unknown"),
-                    "consumables": properties.get("consumables", "unknown"),
-                    "vehicle_class": properties.get("vehicle_class", "unknown"),
-                    "films": safe_join(properties.get("films", [])),
-                }
-                return filtered_data
-            else:
-                return None
-    except Exception:
+async def fetch_starship_data(session: aiohttp.ClientSession, starship_id: int) -> Optional[Dict[str, Any]]:
+    """Загрузка данных о звездолёте"""
+    url = f"{BASE_URL}starships/{starship_id}"
+    data = await fetch_with_retry(session, url)
+    if not data:
         return None
 
+    return {
+        "id": starship_id,
+        "name": data.get("name", "unknown"),
+        "model": data.get("model", "unknown"),
+        "manufacturer": data.get("manufacturer", "unknown"),
+        "cost_in_credits": data.get("cost_in_credits", "unknown"),
+        "length": data.get("length", "unknown"),
+        "crew": data.get("crew", "unknown"),
+        "passengers": data.get("passengers", "unknown"),
+        "cargo_capacity": data.get("cargo_capacity", "unknown"),
+        "consumables": data.get("consumables", "unknown"),
+        "hyperdrive_rating": data.get("hyperdrive_rating", "unknown"),
+        "starship_class": data.get("starship_class", "unknown"),
+        "films": safe_join(data.get("films", [])),
+    }
 
-async def fetch_planet_data(session, planet_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Загрузка данных о планете.
-    """
-    try:
-        planet_url = f"{BASE_URL.strip()}planets/{planet_id}"
-        async with session.get(planet_url) as response:
-            if response.status == 200:
-                data = await response.json()
-                properties = data.get("result", {}).get("properties", {})
-
-                # Фильтруем только нужные поля
-                filtered_data = {
-                    "id": planet_id,
-                    "name": properties.get("name", "unknown"),
-                    "diameter": properties.get("diameter", "unknown"),
-                    "rotation_period": properties.get("rotation_period", "unknown"),
-                    "orbital_period": properties.get("orbital_period", "unknown"),
-                    "gravity": properties.get("gravity", "unknown"),
-                    "population": properties.get("population", "unknown"),
-                    "climate": properties.get("climate", "unknown"),
-                    "terrain": properties.get("terrain", "unknown"),
-                    "surface_water": properties.get("surface_water", "unknown"),
-                }
-                return filtered_data
-            else:
-                return None
-    except Exception:
+async def fetch_vehicle_data(session: aiohttp.ClientSession, vehicle_id: int) -> Optional[Dict[str, Any]]:
+    """Загрузка данных о транспортном средстве"""
+    url = f"{BASE_URL}vehicles/{vehicle_id}"
+    data = await fetch_with_retry(session, url)
+    if not data:
         return None
+
+    return {
+        "id": vehicle_id,
+        "name": data.get("name", "unknown"),
+        "model": data.get("model", "unknown"),
+        "manufacturer": data.get("manufacturer", "unknown"),
+        "cost_in_credits": data.get("cost_in_credits", "unknown"),
+        "length": data.get("length", "unknown"),
+        "crew": data.get("crew", "unknown"),
+        "passengers": data.get("passengers", "unknown"),
+        "cargo_capacity": data.get("cargo_capacity", "unknown"),
+        "consumables": data.get("consumables", "unknown"),
+        "vehicle_class": data.get("vehicle_class", "unknown"),
+        "films": safe_join(data.get("films", [])),
+    }
+
+async def fetch_planet_data(session: aiohttp.ClientSession, planet_id: int) -> Optional[Dict[str, Any]]:
+    """Загрузка данных о планете"""
+    url = f"{BASE_URL}planets/{planet_id}"
+    data = await fetch_with_retry(session, url)
+    if not data:
+        return None
+
+    return {
+        "id": planet_id,
+        "name": data.get("name", "unknown"),
+        "diameter": data.get("diameter", "unknown"),
+        "rotation_period": data.get("rotation_period", "unknown"),
+        "orbital_period": data.get("orbital_period", "unknown"),
+        "gravity": data.get("gravity", "unknown"),
+        "population": data.get("population", "unknown"),
+        "climate": data.get("climate", "unknown"),
+        "terrain": data.get("terrain", "unknown"),
+        "surface_water": data.get("surface_water", "unknown"),
+    }
