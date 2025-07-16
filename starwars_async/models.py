@@ -22,7 +22,7 @@ class Character(Base):
     vehicles = Column(Text, nullable=True)
 
     def __repr__(self):
-        return f"<Character(id={self.id}, name={self.name})>"
+        return f"<Character(id={self.id}, name='{self.name}', species='{self.species}')>"
 
 
 class Starship(Base):
@@ -41,9 +41,10 @@ class Starship(Base):
     hyperdrive_rating = Column(String(50), nullable=True)
     starship_class = Column(String(100), nullable=True)
     films = Column(Text, nullable=True)
+    pilots = Column(Text, nullable=True)  # Добавлено новое поле
 
     def __repr__(self):
-        return f"<Starship(id={self.id}, name={self.name})>"
+        return f"<Starship(id={self.id}, name='{self.name}', class='{self.starship_class}')>"
 
 
 class Vehicle(Base):
@@ -61,9 +62,10 @@ class Vehicle(Base):
     consumables = Column(String(50), nullable=True)
     vehicle_class = Column(String(100), nullable=True)
     films = Column(Text, nullable=True)
+    pilots = Column(Text, nullable=True)  # Добавлено новое поле
 
     def __repr__(self):
-        return f"<Vehicle(id={self.id}, name={self.name})>"
+        return f"<Vehicle(id={self.id}, name='{self.name}', class='{self.vehicle_class}')>"
 
 
 class Planet(Base):
@@ -79,6 +81,8 @@ class Planet(Base):
     climate = Column(String(100), nullable=True)
     terrain = Column(String(100), nullable=True)
     surface_water = Column(String(50), nullable=True)
+    residents = Column(Text, nullable=True)  # Добавлено новое поле
+    films = Column(Text, nullable=True)      # Добавлено новое поле
 
     def __repr__(self):
-        return f"<Planet(id={self.id}, name={self.name})>"
+        return f"<Planet(id={self.id}, name='{self.name}', population='{self.population}')>"
